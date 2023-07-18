@@ -8,11 +8,13 @@ require_once 'BaseConnection.php';
 
 class TopGathering extends BaseConnection
 {
-    function getRelativeProducts(int $product_id) : array
+    #pass here table name with costs;
+    public string $cost_tableName ='costs';
+    public function getRelativeProducts(int $product_id) : array
     {
         $list = [];
-        $sql = "select op2.orderID, op2.productID from order_product op2 where
-                op2.orderID in (select op.orderID from order_product op 
+        $sql = "select op2.orderID, op2.productID from $this->order_product_tableName op2 where
+                op2.orderID in (select op.orderID from $this->order_product_tableName op 
                 where op.productId =$product_id)";
         if($result = $this->conn->query($sql))
         {
@@ -120,7 +122,7 @@ class TopGathering extends BaseConnection
             $this->conn->query(
                 "truncate table `costs`");
         }
-        $sql = "insert into `costs` values";
+        $sql = "insert into `$this->cost_tableName` values";
         foreach ($set_sample_costs as $set_sample_cost)
         {
             $str_set = serialize($set_sample_cost['set']);
@@ -132,7 +134,9 @@ class TopGathering extends BaseConnection
     }
 }
 
-
+/*
+ #use this to train model and save results into table
 $gather = new TopGathering();
 $model = $gather->trainTopSets(100, 3, 0.1);
 $gather->saveModel($model, "./models/fp_model");
+*/
