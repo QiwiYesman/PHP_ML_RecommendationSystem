@@ -12,7 +12,7 @@ $list->orders=$test;
 use Phpml\Association\Apriori;
 
 $labels = [];
-$classifier = new Apriori($support = 0.005, $confidence =0.001);
+$classifier = new Apriori($support = 0.02, $confidence =0.01);
 $classifier->train($read, $labels);
 
 //$filepath = 'model';
