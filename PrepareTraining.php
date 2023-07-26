@@ -161,7 +161,7 @@ abstract class PrepareTraining extends BaseConnection
      * Saving trained costs to a table (each training model has own table)
      * @param array $set_sample_costs sets from method trainTopSets
      * @param bool $toTruncate if true, truncates the table and then inserts values.
-     * <br> Else inserts to to the end of the table
+     * <br> Else inserts to the end of the table
      * @return void
      */
     public function saveCosts(array $set_sample_costs, bool $toTruncate=true): void

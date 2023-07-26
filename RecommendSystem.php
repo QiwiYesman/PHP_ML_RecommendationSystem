@@ -1,11 +1,17 @@
 <?php
 
-require_once 'BaseConnection.php';
-require_once 'TrainMethods.php';
+require_once __DIR__.'/BaseConnection.php';
+require_once __DIR__.'/TrainMethods.php';
 class RecommendSystem extends BaseConnection
 {
-    private array $tablesByMethods = ["costs", "costs2", "costs3"];
+    public array $tablesByMethods = ["costs", "costs2", "costs3"];
+
+    /**
+     * @var array|string[] these table names for recommend from extension trained tables
+     */
+    public array $extTables = ["costsExt", "costs2ext", "costs3ext"];
     public string $cost_tableName="costs";
+    public string $ext_tableName="costsExt";
 
     /**
      * Get recommendations from a table
@@ -66,7 +72,42 @@ class RecommendSystem extends BaseConnection
             }
         }
         return $recommendations;
+    }
 
+    /**
+     * Get recommendations from an ext table
+     * @param int $topAmount    max number of rows to select from top (ordered by cost value)
+     * @param int $perValueLimit    max number of relative sets per every product from top.
+     * It is not implied that you will get the max number if you have in table more than max rows;
+     * If similar values will appear, they are counted. Then only one value from duplicates will remain
+     * @param float $minCost    min cost (confidence). If cost of record is less, it is not considered
+     * @return array    set of recommendations. It has only unique values. It CAN contain productIDs from top
+     */
+    public function recommendByTopExt(int $topAmount, int $perValueLimit=20, float $minCost=0.1): array
+    {
+        $last = $this->cost_tableName;
+        $this->cost_tableName=$this->ext_tableName;
+        $result = $this->recommendByTop($topAmount, $perValueLimit, $minCost);
+        $this->cost_tableName = $last;
+        return $result;
+    }
+
+    /**
+     * Get recommendations from an ext table
+     * @param int $topAmount    max number of rows to select from top (ordered by cost value)
+     * @param int $perValueLimit    max number of relative sets per every product from top.
+     * It is not implied that you will get the max number if you have in table more than max rows;
+     * If similar values will appear, they are counted. Then only one value from duplicates will remain
+     * @param float $minCost    min cost (confidence). If cost of record is less, it is not considered
+     * @return array    set of recommendations. It has only unique values. It CANNOT contain productIDs from top
+     */
+    public function recommendByTopWithoutTopExt(int $topAmount, int $perValueLimit=20, float $minCost=0.1): array
+    {
+        $last = $this->cost_tableName;
+        $this->cost_tableName=$this->ext_tableName;
+        $result = $this->recommendByTopWithoutTop($topAmount, $perValueLimit, $minCost);
+        $this->cost_tableName = $last;
+        return $result;
     }
 
     /**
@@ -100,6 +141,62 @@ class RecommendSystem extends BaseConnection
     }
 
     /**
+     * Get recommendations from a table plus recommendations from an ext table
+     * @param int $topAmount    max number of rows to select from top (ordered by cost value)
+     * @param int $perValueLimit    max number of relative sets per every product from top.
+     * It is not implied that you will get the max number if you have in table more than max rows;
+     * If similar values will appear, they are counted. Then only one value from duplicates will remain
+     * @param float $minCost    min cost (confidence). If cost of record is less, it is not considered
+     * @return array    set of recommendations. It has only unique values. It CAN contain productIDs from top
+     */
+    public function recommendByTopPlusExt(int $topAmount, int $perValueLimit=20, float $minCost=0.3): array
+    {
+        return array_unique(array_merge(
+            $this->recommendByTop($topAmount, $perValueLimit, $minCost),
+            $this->recommendByTopExt($topAmount, $perValueLimit, $minCost/3)
+        ));
+    }
+
+    /**
+     * Get recommendations from a table plus recommendations from an ext table
+     * @param int $topAmount    max number of rows to select from top (ordered by cost value)
+     * @param int $perValueLimit    max number of relative sets per every product from top.
+     * It is not implied that you will get the max number if you have in table more than max rows;
+     * If similar values will appear, they are counted. Then only one value from duplicates will remain
+     * @param float $minCost    min cost (confidence). If cost of record is less, it is not considered
+     * @return array    set of recommendations. It has only unique values. It CANNOT contain productIDs from top
+     */
+    public function recommendByTopWithoutTopPlusExt(int $topAmount, int $perValueLimit=20, float $minCost=0.3): array
+    {
+        return array_unique(array_merge(
+            $this->recommendByTopWithoutTop($topAmount, $perValueLimit, $minCost),
+            $this->recommendByTopWithoutTopExt($topAmount, $perValueLimit, $minCost/3)
+        ));
+    }
+
+    /**
+     * Get recommendations from common tables plus ext tables.
+     * Recommendations are selected from all tables and then merged.
+     * Current table remains as for last training method.
+     * @param int $topAmount    max number of rows to select from top (ordered by cost value)
+     * @param int $perValueLimit    max number of relative sets per every product from top.
+     * It is not implied that you will get the max number if you have in table more than max rows;
+     * If similar values will appear, they are counted. Then only one value from duplicates will remain
+     * @param float $minCost    min cost (confidence). If cost of record is less, it is not considered
+     * @return array    set of recommendations. It has only unique values. It CAN contain productIDs from top.
+     */
+    public function recommendByTopFromAllTablesPlusExt(int $topAmount, int $perValueLimit=20, float $minCost=0.6) :array
+    {
+        $this->switchAllTablesByMethod(TrainMethods::FPGrowth);
+        $fp =$this->recommendByTopWithoutTopPlusExt($topAmount, $perValueLimit, $minCost);
+        $this->switchAllTablesByMethod(TrainMethods::Apriori);
+        $apriori =$this->recommendByTopWithoutTopPlusExt($topAmount, $perValueLimit, $minCost);
+        $this->switchAllTablesByMethod(TrainMethods::Eclat);
+        $eclat =$this->recommendByTopWithoutTopPlusExt($topAmount, $perValueLimit, $minCost);
+        return  array_unique(array_merge($eclat, $apriori, $fp));
+    }
+
+    /**
      * Get recommendations.
      * Recommendations are selected from all tables and then merged.
      * Current table remains as for last training method.
@@ -112,11 +209,11 @@ class RecommendSystem extends BaseConnection
      */
     public function recommendByTopFromAllTables(int $topAmount, int $perValueLimit=20, float $minCost=0.6) :array
     {
-        $this->switchTableMyMethod(TrainMethods::FPGrowth);
+        $this->switchTableByMethod(TrainMethods::FPGrowth);
         $fp =$this->recommendByTop($topAmount, $perValueLimit, $minCost);
-        $this->switchTableMyMethod(TrainMethods::Apriori);
+        $this->switchTableByMethod(TrainMethods::Apriori);
         $apriori =$this->recommendByTop($topAmount, $perValueLimit, $minCost);
-        $this->switchTableMyMethod(TrainMethods::Eclat);
+        $this->switchTableByMethod(TrainMethods::Eclat);
         $eclat =$this->recommendByTop($topAmount, $perValueLimit, $minCost);
         return  array_unique(array_merge($eclat, $apriori, $fp));
     }
@@ -134,11 +231,11 @@ class RecommendSystem extends BaseConnection
      **/
     public function recommendByTopFromAllTablesWithoutTop(int $topAmount, int $perValueLimit=20, float $minCost=0.6) :array
     {
-        $this->switchTableMyMethod(TrainMethods::FPGrowth);
+        $this->switchTableByMethod(TrainMethods::FPGrowth);
         $fp =$this->recommendByTopWithoutTop($topAmount, $perValueLimit, $minCost);
-        $this->switchTableMyMethod(TrainMethods::Apriori);
+        $this->switchTableByMethod(TrainMethods::Apriori);
         $apriori =$this->recommendByTopWithoutTop($topAmount, $perValueLimit, $minCost);
-        $this->switchTableMyMethod(TrainMethods::Eclat);
+        $this->switchTableByMethod(TrainMethods::Eclat);
         $eclat =$this->recommendByTopWithoutTop($topAmount, $perValueLimit, $minCost);
         return  array_unique(array_merge($eclat, $apriori, $fp));
     }
@@ -162,9 +259,30 @@ class RecommendSystem extends BaseConnection
      * @param int $methodEnum look at class TrainMethods that has constants
      * @return void
      **/
-    public function switchTableMyMethod(int $methodEnum): void
+    public function switchTableByMethod(int $methodEnum): void
     {
         $this->cost_tableName = $this->tablesByMethods[$methodEnum];
+    }
+
+    /**
+     * Works like switchTableByMethod, but switches the extTable
+     * @param int $methodEnum
+     * @return void
+     */
+    public function switchTableExtByMethod(int $methodEnum): void
+    {
+        $this->ext_tableName = $this->extTables[$methodEnum];
+    }
+
+    /**
+     * Switches all tables
+     * @param int $methodEnum look at class TrainMethods that has constants
+     * @return void
+     */
+    public function switchAllTablesByMethod(int $methodEnum): void
+    {
+        $this->switchTableByMethod($methodEnum);
+        $this->switchTableExtByMethod($methodEnum);
     }
 }
 
